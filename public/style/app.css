@@ -1,0 +1,36 @@
+
+body {
+    background: #293237;
+    margin: 0px;
+}
+
+.center {
+    margin: auto;
+    width: 1280px;
+    text-align: center;
+}
+
+.btn_mic
+{
+    padding: 0;
+    width: 80px;
+    height: 80px;
+    overflow: hidden;
+    border: 2px solid #ffffff;
+    border-radius: 60px;
+    background: #AD0321 url('../style/mic.png') no-repeat center center;
+    background-size: 30%;
+    cursor: pointer;
+    outline: none;
+}
+
+.btnup {
+    box-shadow: 4px 4px 0 0 #2e2e2e;
+    margin: 20px 0px 0px 0px;
+}
+
+.btndown {
+	box-shadow: none;
+    background-color: #FB274A;
+    margin: 22px -2px -2px 2px;
+}

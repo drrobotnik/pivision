@@ -1,0 +1,17 @@
+{
+  "name": "p5vision",
+  "version": "1.0.0",
+  "description": "A p5.js / node app for working with Microsoft Cognitive Services",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Rick Barraza",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.14.0",
+    "multiparty": "^4.1.2",
+    "request": "^2.79.0",
+    "socket.io": "^1.6.0"
+  }
+}
