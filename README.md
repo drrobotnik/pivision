@@ -5,16 +5,16 @@ This is an adaptation of p5vision public repo. The intention of this project is 
 ## Featuring
 Hot and Action word detection, Speech to text, text to intent (LUIS), computer vision and emotion analysis through a Node server running a P5 based client.
 
-audio keyword recognition/detection
+#### audio keyword recognition/detection
 
 [![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/P0LygKjKHFk/0.jpg)](https://www.youtube.com/watch?v=P0LygKjKHFk)
 
 
-Respond to action word "take a picture", by taking a picture.
+#### Respond to action word "take a picture", by taking a picture.
 
 [![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/OlyinXlpHZc/0.jpg)](https://www.youtube.com/watch?v=OlyinXlpHZc)
 
 
-Original project sample video found here:
+#### Original project sample video found here:
 
 [![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/LCQ5BxSz8G4/0.jpg)](https://www.youtube.com/watch?v=LCQ5BxSz8G4)
