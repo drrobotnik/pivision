@@ -1,36 +1,98 @@
-
-body {
-    background: #293237;
-    margin: 0px;
+html, body {
+  height: 100%;
+  min-height: 100%;
 }
 
+body {
+  margin: 0px;
+  background-color: #7ba8a2;
+  -webkit-transition: background-color .25s ease-out;
+  -ms-transition: background-color .25s ease-out;
+  transition: background-color .25s ease-out;
+}
+
+video, canvas {
+    width: 50vw !important;
+    height: 50vw !important;
+    background-color: #000;
+}
+
+.hal9000 {
+  width:100%;
+  height: 50vh;
+  position: relative;
+}
+
+.hal9000 svg {
+  position: absolute;
+  width: 30vmin;
+  height: 30vmin;
+  overflow: visible;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  margin: auto;
+}
+
+body.listening { background-color: teal; }
+body.recording { background-color: #ff5f41 !important; }
 .center {
     margin: auto;
     width: 1280px;
     text-align: center;
+    padding: 4px;
 }
 
-.btn_mic
-{
-    padding: 0;
-    width: 80px;
-    height: 80px;
-    overflow: hidden;
-    border: 2px solid #ffffff;
-    border-radius: 60px;
-    background: #AD0321 url('../style/mic.png') no-repeat center center;
-    background-size: 30%;
-    cursor: pointer;
-    outline: none;
+.listening .dash-dots-outer,
+.listening .dots-middle,
+.listening .dash-dots-inner {
+  -webkit-animation: rotate 4.5s infinite ease-in-out;
+          animation: rotate 4.5s infinite ease-in-out;
+  -webkit-transform-origin: center center;
+          transform-origin: center center;
 }
 
-.btnup {
-    box-shadow: 4px 4px 0 0 #2e2e2e;
-    margin: 20px 0px 0px 0px;
+.listening .dots-outer,
+.listening .dots-inner {
+  -webkit-animation: counter-rotate 4.5s infinite ease-in-out;
+          animation: counter-rotate 4.5s infinite ease-in-out;
+  -webkit-transform-origin: center center;
+          transform-origin: center center;
 }
 
-.btndown {
-	box-shadow: none;
-    background-color: #FB274A;
-    margin: 22px -2px -2px 2px;
+@-webkit-keyframes rotate {
+  100% {
+    -webkit-transform: rotate(360deg);
+            transform: rotate(360deg);
+  }
+}
+
+@keyframes rotate {
+  100% {
+    -webkit-transform: rotate(360deg);
+            transform: rotate(360deg);
+  }
+}
+@-webkit-keyframes counter-rotate {
+  100% {
+    -webkit-transform: rotate(-360deg);
+            transform: rotate(-360deg);
+  }
+}
+@keyframes counter-rotate {
+  100% {
+    -webkit-transform: rotate(-360deg);
+            transform: rotate(-360deg);
+  }
+}
+@-webkit-keyframes dashoffset {
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes dashoffset {
+  100% {
+    stroke-dashoffset: 0;
+  }
 }

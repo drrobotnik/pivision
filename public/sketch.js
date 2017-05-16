@@ -1,5 +1,4 @@
 var webcam;
-var btnTalk;
 var snapshot;
 var socket;
 var speakOut;
@@ -16,7 +15,7 @@ var hasSnapshot = false;
 var showPeople = false;
 var showEmotions = false;
 
-function setup() {    
+function setup() {
 
     // SETUP OUR MICROPHONE, RECORDER AND SOUND FILE 
     // FOR RECORDING SPOKEN REQUESTS
@@ -24,25 +23,27 @@ function setup() {
     mic.start();
     recorder = new p5.SoundRecorder();
     recorder.setInput(mic);
+    recorder.state = 0;
+    recorder.silenceDuration = 0;
     soundFile = new p5.SoundFile();
 
     // CREATE OUR WEBCAM DOM ELEMENT AND ADD IT TO 
     // OUR CONTAINING DIV FIRST, TO BE ON THE LEFT OF THE SKETCH
     webcam = createCapture(VIDEO);
-    webcam.size(640, 480);
+    webcam.size(640, 640);
     webcam.parent('p5host');
 
     // SETUP A P5 IMAGE FOR TAKING A SNAPSHOT OF THE WEBCAM 
     // AND SENDING TO THE SERVER FOR ANALYSIS
-    snapshot = createImage(640, 480);
+    snapshot = createImage(640, 640);
 
     // NOW CREATE OUR INTERACTIVE CANVAS AND IT TO OUR CONTAINING DIV
-    var canvas = createCanvas(640,480);
+    var canvas = createCanvas(640,640);
     canvas.parent('p5host');
     
     // SETUP OUR SOCKET SERVER FOR BACK AND FORTH COMMUNICATION
     // WITH OUR SERVER WHICH WILL FORWARD CALLS TO COGNITIVE SERVICES
-    socket = io.connect('http://localhost:3000');
+    socket = io.connect('https://0.0.0.0');
 
     // THIS RESPONSE IS FIRED WHEN OUR SPEECH REQUEST HAS BEEN PROCESSED TO INTENT
     socket.on('speechToIntentResponse', speechToIntentResponse);
@@ -51,37 +52,106 @@ function setup() {
     // THIS RESPONSE IS FIRED WHEN OUR IMAGE HAS BEEN PROCESSED BY COG.SERVICES->EMOTION
     socket.on('snapshotToEmotionResponse', snapshotToEmotionResponse);
 
+    //socket.on('DetectorResponse', DetectorResponse);
+
+    socket.on( 'DetectorResponseSound', DetectorResponseSound );
+
+    socket.on( 'DetectorResponseHotWord', DetectorResponseHotWord );
+
+    socket.on( 'DetectorResponseActionWord', DetectorResponseActionWord );
+
+    socket.on( 'DetectorResponseSilence', DetectorResponseSilence );
+
     // CREATE THE ABILITY FOR THE SOFTWARE TO SPEAK OUT OUR SERVER RESULTS
     speakOut = new p5.Speech();
 
-    // CREATE A DOM BUTTON, WIRE IT UP, AND PLACE IT ACCORDINGLY
-    btnTalk = createButton('');
-    btnTalk.parent('p5host');
-    btnTalk.addClass('btn_mic');
-    btnTalk.addClass('btnup');
-
-    // ADD THE BUTTON EVENT HANDLERS
-    btnTalk.mousePressed(function() {
-        btnTalk.removeClass('btnup');
-        btnTalk.addClass('btndown');
-        recorder.record(soundFile);
-    });
-    btnTalk.mouseReleased(function() {
-        btnTalk.removeClass('btndown');
-        btnTalk.addClass('btnup');
-        recorder.stop();
-        speechToIntent();        
-    });
 }
 
 /****************************************************
  *  1] CONVERTING THE AUDIO INTO ACTIONABLE INTENT
 *****************************************************/
 
+function DetectorResponse( $response ) {
+    console.log( $response );
+}
+
+function DetectorResponseSound( $response ) {
+    console.log( $response );
+    
+    if( ! $('body').hasClass('listening') && ! $('body').hasClass('recording') ) {
+        $('body').addClass('listening');
+    }
+}
+
+
+function DetectorResponseHotWord( $response ) {
+    if( 1 !== recorder.state ) {
+        console.log( $response );
+        if( ! $('body').hasClass('recording') ) {
+            $('body').addClass('recording');
+        }
+        recorder.record(soundFile);
+    }
+
+    recorder.silenceDuration = 0;
+    recorder.state = 1;
+}
+
+function DetectorResponseActionWord( $response ) {
+    
+    if( 1 === recorder.state ) {
+        applyAction( $response.hotword );
+        console.log( $response.hotword );
+        console.log('action word detected while recording');
+    }else{
+        console.log( $response );
+    }
+}
+
+function DetectorResponseSilence( $response ) {
+    if( 1 === recorder.state && recorder.silenceDuration === 8 ) {
+
+        recorder.stop();
+        if( $('body').hasClass('recording') ) {
+            $('body').removeClass('recording');
+        }
+        speechToIntent();
+        recorder.silenceDuration = 0;
+        recorder.state = 0;
+    }
+
+    if( $('body').hasClass('listening') ) {
+        $('body').removeClass('listening');
+    }
+    recorder.silenceDuration++;
+    
+}
+
+function applyAction( $action ) { console.log('the action is: ' + $action);
+    switch ( $action ) {
+        case "take a picture":
+            takePhoto();
+            break;
+        case "detect faces":
+            findHumans();
+            break;
+        case "FindThings":
+            findThings();
+            break;
+        case "FindEmotions":
+            findEmotions();
+            break;
+        case "Translate":
+            break;
+    }
+}
+
 function speechToIntent() {
     // THIS ALWAYS INDICATES A NEW REQUEST FOR INFORMAITON
     // SO CLEAR ANY EXISTING CALLBACKS FOR HANDLING NESTED QUERIES
     callback = null;
+
+    //soundFile.play();
 
     // GET THE AUDIO RECORDING FROM P5 AS A BLOB
     sendblob = getSoundBlob(soundFile);
@@ -94,7 +164,6 @@ function speechToIntent() {
     reader.addEventListener("load", function() {
         var files = {
             audio: {
-                type: 'audio/wav',
                 dataURL: this.result
             }
         }
@@ -145,6 +214,8 @@ function takePhoto() {
     // TAKE A SNAPSHOT OF THE CURRENT IMAGE IN THE WEBCAM
     snapshot.loadPixels();
     webcam.loadPixels();
+
+    console.log(snapshot);
     for ( var x = 0; x < snapshot.width; x++ ) {
         for ( var y = 0; y < snapshot.height*4; y++ ) {
             var i = y * webcam.width + x;

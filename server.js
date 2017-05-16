@@ -1,147 +1,198 @@
 // THESE DEPENDENCIES COME DEFAULT WITH NODE
-var http = require('http'),
-    util = require('util'),
-    fs = require('fs');
+var https = require('https'),
+	util = require('util'),
+	fs = require('fs'),
+	sox = require('sox'),
+	wav = require('wav'),
+	record = require('node-record-lpcm16'),
+	Models = require('./models.js').Models,
+	Detector = require('./models.js').Detector,
+	ActionModels = require('./models.js').Models,
+	ActionDetector = require('./models.js').Detector,
+	
+	Speech = require('@google-cloud/speech'),
+	express = require('express'),
+	WordPOS = require('wordpos'),
+	wordpos = new WordPOS({stopwords: true}),
 
-// THESE DEPENDENCIES NEED TO BE INSTALLED EXPLICITLY
-// THROUGH NPM ( "npm install express --save") AND WILL 
-// BE REGISTERED IN OUR PACKAGE.JSON 
+	projectId = 'pi-society',
+	sampleRate = 16000,
 
-// 'EXPRESS' GIVES US A BASIC HOSTING FRAMEWORK
-var express = require('express');
+	models = new Models(),
+	action_models = new ActionModels(),
+	app = express(),
+	serverPort = 443;
 
-// 'SOCKET.IO' ALLOWS US TO RECEIVE STREAMED DATA FROM
-// THE CLIENT FOR ADDITIONAL PROCESSING AS WELL AS REPLY BACK
-var socket = require('socket.io');
-
-// 'REQUEST'' ALLOWS US TO CALL OUT TO THE 
-// COGNITIVE SERVICES REST APIS TO PROCESS THE POSTED DATA
-var request = require('request');
-
-
-// **********************************************************************************
-// ACCESS KEYS 
-// ----------------------------------------------------------------------------------
-// NOTE: THESE SHOULD BE MOVED TO A CONFIGURATION FILE AND NEVER SHARED.
-// LISTED HERE SO YOU KNOW WHERE TO ENTER YOUR OWN VALUES AND BE MORE READABLE
-// FOR THE TUTORIAL. REPLACE 'xxx-xxx-xxx...' WITH YOUR OWN VALUES ONCE 
-// YOU'VE SETUP YOUR ACCOUNTS
-// **********************************************************************************
-
-// THIS IS A SHARED, GLOBALLY PUBLIC APP ID TO GET 
-// THE 'SPEECH TO TEXT' RESULTS BACK. WORKS FOR EVERYONE
-var speechToTextRequiredAppID = 'D4D52672-91D7-4C74-8AD8-42B1D98141A5';
-
-// THE REST WILL REQUIRE A PRIVATE, PERSONAL KEY FROM THE COG SERVICES / AZURE ACCOUNTS:
-// ONCE YOU HAVE SIGNED UP FOR MICROSOFT COGNITIVE SERVICES, 
-// WE CAN ACCESS MOST OF YOUR KEYS HERE:
-// https://www.microsoft.com/cognitive-services/en-US/subscriptions
-
-// FOUND UNDER 'Computer Vision - Preview'
-var visionKey = 'YOUR_VISION_KEY_HERE';
-
-// FOUND UNDER 'EMOTION - PREVIEW'
-var emotionKey = 'YOUR_EMOTION_KEY_HERE';
-
-// THESE OTHER TWO API KEYS ARE FOR THE TRANSLATOR SERVICE SPECIFICALLY, AND 
-// COMES FROM YOUR AZURE ACCOUNT / AZURE MARKETPLACE
-// YOU CAN LEARN MORE ABOUT SETTING THEM UP HERE:
-// https://azure.microsoft.com/en-us/services/cognitive-services/translator-speech-api/
-var clientId = 'YOUR_TRANSLATOR_APP_ID';
-var clientSecret = 'YOUR_TRANSLATOR_KEY_HERE';
-
-// THESE TWO KEYS COME FROM THE LUIS APP WE CREATE
-// https://www.luis.ai/applicationlist
-var luisID = 'YOUR_LUIS_APP_ID'; // <- THE ID OF OUR LUIS APP
-var luisKey = 'YOUR_LUIS_KEY_HERE'; // <- THE SECRET KEY TO ACCESS THE ABOVE APP
-
-
-
-// SETUP OUR HOSTING AND SERVE OUR STATIC FILES 
-// STORED IN THE 'PUBLIC' FOLDER AS REQUESTED
-var app = express();
 app.use(express.static('public'));
 
-// START THE WEB SERVER
-var server = app.listen(3000, '0.0.0.0', function() {
-    var host = server.address().address;
-    var port = server.address().port;
-    console.log("p5Vision Server running on http://%s:%s", host, port);
+var options = {
+	key: fs.readFileSync('./file.pem'),
+	cert: fs.readFileSync('./file.crt')
+};
+
+var server = https.createServer(options, app),
+	io = require('socket.io')(server);
+
+models.add({
+	file: 'resources/Caava.pmdl',
+	sensitivity: '0.5',
+	hotwords : 'caava'
 });
 
-// START THE SOCKET SERVER AND HANDLERS
-var io = socket(server);
+var detector = new Detector({
+	resource: "resources/common.res",
+	models: models,
+	audioGain: 1.0
+	//audioGain: 2.0
+});
 
-// FOR THIS PROJECT, WE ARE ONLY HAVING ONE CONNECTION FROM 
-// A LOCAL HOST SERVING AN INSTANCE OF OUR P5 SKETCH IN THE CLIENT
-io.sockets.on('connection', newConnection);
+action_models.add({
+	file: 'resources/take_a_picture.pmdl',
+	sensitivity: '0.6',
+	hotwords : 'take a picture'
+});
 
-function newConnection(socket) {
+action_models.add({
+	file: 'resources/detect_faces.pmdl',
+	sensitivity: '0.6',
+	hotwords : 'detect faces'
+});
 
-    console.log('new connection ' + socket.id);
-    // ONCE A CONNECTION A MADE, WIRE UP THE THREE MAIN CALLS:
+var action_detector = new ActionDetector({
+	resource: "resources/common.res",
+	models: action_models,
+	audioGain: 1.0
+	//audioGain: 2.0
+});
 
-    // FORWARDING THE RECORDED MICROPHONE SOUNDBLOB FROM THE CLIENT
-    // TO AUDIO TO TEXT FIRST, THEN FORWARDING TO LUIS FOR SPEECH TO INTENT
-    socket.on('speechToIntent', speechToIntent);
-    function speechToIntent(data) {
+server.listen(serverPort, function() {
+	console.log('server up and running at %s port', serverPort);
+});
 
-        console.log("\n------------------------------------");
-        console.log("data received. Sending voice to text conversion first...");
-
-        dataURL = data.audio.dataURL;
-        dataURL = dataURL.split(',').pop();
-        fileBuffer = new Buffer(dataURL, 'base64');
-
-        var options = { flag : 'w' };
-
-        // 1. WRITE THE AUDIOBLOB OF THE WAV FILE LOCALLY BEFORE PROCESSING FURTHER
-        var fileName = "temp.wav";
-
-        // NOTE: THIS MAY BE MADE MORE EFFICIENT WITH MEMORY BUFFERS, BUT THEN YOU WILL
-        // WANT TO MANAGE YOUR AUDIO LENGTH AND MEMORY MANAGEMENT TOO
-        fs.writeFile(fileName, fileBuffer, options, function(err) {
-
-            // BEFORE WE CAN CALL VOICE TO TEXT, WE NEED TO GET OUR ACCESS TOKEN TO
-            // THE APPROPRIATE MICROSOFT CONGNITIVE SERVICES
-            getAccessToken(clientId, clientSecret, function(err, accessToken) {
-  
-              if(err) return console.log(err);
-              console.log("Access Token received.");
-              
-              // ONCE WE HAVE THE ACCESS TOKEN, WE CAN NOW PROCESS SPEECH TO TEXT
-              speechToText(fileName, accessToken, function(err, speechres) {
-    
-                if(err) return console.log("ERROR: " + err);
-                console.log("SpeechToText: " + speechres.results[0].lexical);
-
-                // ONCE WE HAVE TEXT FROM OUR SPEECH AUDIO, WE SEND THE TEXT TO LUIS
-                // FOR SPEECH TO JSON INTENT PROCESSING. THIS ACTIONABLE JSON WILL BE 
-                // RETURNED TO THE CLIENT FOR FINAL HANDLING
-                LUIS(speechres.results[0].lexical, function(err, luisres ) {
-
-                    if(err) return console.log("LUIS ERROR: " + err);
-                    console.log("sending LUIS results back to P5 Client...")
-                    console.log("-----------------------------------------");
-                    socket.emit('speechToIntentResponse', luisres);
-                });
-              });
-         });
-
-        });
-
-        dataURL = null;
-        fileBuffer = null;
-    };
+io.on('connection', newConnection);
 
 
-    // 2. RECEIVE A WEBCAM SNAPSHOT FROM THE CLIENT AND FORWARD IT 
-    // TO MSFT COG.SERVICES FOR VISION ANALYSIS 
+function newConnection( socket ) {
 
-    socket.on('snapshotToVision', snapshotToVision);
+	console.log('new connection ' + socket.id);
+
+	detector.on('silence', function() {
+		socket.emit('DetectorResponseSilence', 'silence');
+	});
+
+	detector.on('sound', function() {
+
+		var date = new Date();
+
+		var year = date.getFullYear();
+		var month = date.getMonth() + 1;
+		var day = date.getDate();
+		var hours = date.getHours();
+		var minutes = date.getMinutes();
+		var seconds = date.getSeconds();
+		console.log('sound ' + year + "-" + month + "-" + day + " " + hours + ":" + minutes + ":" + seconds);
+		socket.emit('DetectorResponseSound', 'sound');
+	});
+
+	detector.on('error', function() {
+		console.log('error');
+		socket.emit('DetectorResponseError', 'error');
+	});
+
+	detector.on( 'hotword', function( index, hotword ) {
+		console.log( 'actionword', index, hotword );
+		socket.emit( 'DetectorResponseHotWord', { index, hotword });
+	});
+
+	action_detector.on('hotword', function(index, hotword) {
+		console.log('actionword', index, hotword);
+		socket.emit('DetectorResponseActionWord', { index, hotword });
+	});
+
+
+
+	const mic = record.start({
+		threshold: 0,
+		verbose: false,
+		sampleRate: sampleRate
+	});
+
+	mic.pipe(detector);
+	mic.pipe(action_detector);
+
+	socket.on('speechToIntent', speechToIntent);
+
+	function callback(err, operation, apiResponse) {
+		if (err) {
+			console.log('error: ' + err );
+		}
+
+		operation.on('error', function( err ) {
+			console.log( 'operation error: ' + err );
+		}).on('complete', function(transcript) {
+			console.log( transcript );
+		});
+	}
+
+	function speechToIntent(data) {
+
+		console.log("data received. Sending voice to text conversion first...");
+
+		var dataURL = data.audio.dataURL,
+			options = { flag : 'w' },
+			fileName = "temp.wav";
+
+		dataURL = dataURL.split(',').pop();
+		var fileBuffer = new Buffer(dataURL, 'base64');
+		
+		fs.writeFile(fileName, fileBuffer, options, function(err) {
+
+			dataURL = null;
+			fileBuffer = null;
+			file = null;
+
+			/* @todo re-work so this fires on action word recognition failure
+			// --rate 16k --bits 16 --channels 1
+			var job = sox.transcode('temp.wav', 'temp.flac', {
+				sampleRate: 16000,
+				format: 'FLAC',
+				channelCount: 1,
+				bitRate: ( 192 * 1024 ) / 2,
+				compressionQuality: 8
+			});
+
+			job.err = 0;
+
+			job.start();
+
+
+			job.on('error', function(err) {
+				console.error(err);
+				job.err = 1;
+			});
+
+			job.on('end', function() {
+				console.log( job.err );
+				
+				if( 0 === job.err ) {
+					google_speech_stuff();
+					//console.log('...mmrewerr google speech stuff mrewwerr...');
+				}
+				
+				console.log("all done");
+			});
+			*/
+		});
+
+		dataURL = null;
+		fileBuffer = null;
+
+	}
+
+	socket.on('snapshotToVision', snapshotToVision);
     function snapshotToVision(data) {
 
-        console.log("sending snapshot to cogserv.vision...");
+        console.log("processing snapshot for faces...");
 
         // GET THE IMAGE AND PREP IT AS Base64 BUFFER
         data.file = data.file.split(',')[1];
@@ -164,131 +215,60 @@ function newConnection(socket) {
                         return;
                     }
                     // FORWARD THE JSON TO THE P5 CLIENT FOR FINAL HANDLING
-                    socket.emit('snapshotToVisionResponse', JSON.stringify(body));
+                    socket.emit(, JSON.stringify(body));
                     console.log("\n\nsnapshotToVisionResponse sent.");
             });
     };
 
-    // 3. RECEIVE A WEBCAM SNAPSHOT FROM THE CLIENT AND FORWARD IT TO
-    // MSFT COG.SERVICES FOR EMOTION ANALYSIS. NOTE THAT THE GENERAL
-    // VISION ANALYSIS PROCESSED IN STEP 2 ABOVE DOES NOT HANDLE EMOTION,
-    // SO WE NEED TO SET THIS UP AS A SEPERATE, EXPLICIT CALL TO ANOTHER REST API
-
-    socket.on('snapshotToEmotion', snapshotToEmotion);
-    function snapshotToEmotion(data) {
-
-        console.log("sending snapshot to cogserv.emotion...");
-
-        // GET THE IMAGE AND PREP IT AS Base64 BUFFER
-        data.file = data.file.split(',')[1];
-        var buffer = new Buffer(data.file, 'base64');
-
-        // SETUP OUR REQUEST
-        request({
-                    url: 'https://api.projectoxford.ai/emotion/v1.0/recognize?',
-                    method: 'post',
-                    headers: {
-                        'Content-Type': 'application/octet-stream',
-                        'Ocp-Apim-Subscription-Key': emotionKey,
-                    },
-                    body: buffer
-                }, (err, res, body) => {
-                    // ONCE WE HAVE A RESPONSE, IF IT'S NOT AN ERR... 
-                    if (err) {
-                        console.log("\nERROR:\n-->" + err);
-                        return;
-                    }
-                    // FORWARD THE JSON TO THE P5 CLIENT FOR FINAL HANDLING
-                    socket.emit('snapshotToEmotionResponse', JSON.stringify(body));
-                    console.log("\n\nsnapshotToEmotionResponse sent:\n-->" + JSON.stringify(body) );
-            });
-    };
-
 }
 
-// HELPER FUNCTIONS
-// ------------------------------------------------------------------
-// THIS FUNCTION IS CALLED ABOVE AND RETURNS AN ACCESS TOKEN
-// FOR SUBSEQUENT MICROSOFT COGNITIVE SERVICES REST API CALLS
-function getAccessToken(clientId, clientSecret, callback) {
-  request.post({
-    url: 'https://oxford-speech.cloudapp.net/token/issueToken',
-    form: {
-      'grant_type': 'client_credentials',
-      'client_id': encodeURIComponent(clientId),
-      'client_secret': encodeURIComponent(clientSecret),
-      'scope': 'https://speech.platform.bing.com'
-    }
-  }, function(err, resp, body) {
-    if(err) return callback(err);
-    try {
-      var accessToken = JSON.parse(body).access_token;
-      if(accessToken) {
-        callback(null, accessToken);
-      } else {
-        callback(body);
-      }
-    } catch(e) {
-      callback(e);
-    }
-  });
+function get_entities( $text ) {
+	wordpos.getPOS($text, function( result ) {
+		console.log(result);
+	});
+/*
+	wordpos.getAdjectives($text, function( result ) {
+		console.log(result);
+	});
+
+	wordpos.getNouns($text, function( result ) {
+		console.log(result);
+	});
+
+	wordpos.getVerbs($text, function( result ) {
+		console.log(result);
+	});
+
+	wordpos.isAdjective('awesome', function(result) {
+		console.log(result);
+	});
+*/
 }
 
-// THIS IS THE FUNCTION THAT CALLS THE SPEECH TO TEXT REST API
-// AND CALLS THE CALLBACK FUNCTION DEFINED ABOVE WITH THE RESULTS
-function speechToText(filename, accessToken, callback) {
+function google_speech_stuff() {
+	// Instantiates a client
+	var speechClient = Speech({
+		projectId: projectId
+	});
 
-  fs.readFile(filename, function(err, waveData) {
-    if(err) return callback(err);
+	var config = {
+		encoding: 'FLAC',
+		sampleRate: 16000
+	};
 
-    console.log("sending speecht to text...");
+	function callback(err, transcript, apiResponse) {
+		if (err) {
+			console.log( 'error: ' + err );
+		}else{
+			console.log( 'transcript' );
+			console.log( transcript );
+			var entities = get_entities( transcript );
 
-    request.post({
-      url: 'https://speech.platform.bing.com/recognize/query',
-      qs: {
-        'scenarios': 'ulm',
-        'appid': encodeURIComponent(speechToTextRequiredAppID),
-        'locale': 'en-US',
-        'device.os': 'wp7',
-        'version': '3.0',
-        'format': 'json',
-        'requestid': '99999999-9999-9999-9999-999999999999', // THIS CAN BE ANY VALUE, NOT USED BUT REQUIRED
-        'instanceid': '99999999-9999-9999-9999-999999999999' // THIS CAN BE ANY VALUE, NOT USED BUT REQUIRED
-      },
-      body: waveData,
-      headers: {
-        'Authorization': 'Bearer ' + accessToken,
-        'Content-Type': 'audio/wav; samplerate=8000',// changed from samplerrate=16000
-        'Content-Length' : waveData.length
-      }
-    }, function(err, resp, body) {
-      if(err) return callback(err);
-      try {
-        callback(null, JSON.parse(body));
-      } catch(e) {
-        callback(e);
-      }
-    });
-  });
+		}
+
+		console.log(apiResponse);
+
+	}
+
+	speechClient.recognize('./temp.flac', config, callback);
 }
-
-// THIS IS THE FUNCTION THAT CALLS LUIS WITH THE AUDIO TO TEXT
-// RESULTS AND THEN CALLS THE CALLBACK FUNCTION WITH THE JSON RESULTS
-function LUIS(query, callback) {
-    request.get({
-      url: 'https://api.projectoxford.ai/luis/v1/application',
-      qs: {
-        'id': luisID, 
-        'subscription-key': luisKey,
-        'q': query
-      }
-    }, function(err, resp, body) {
-      if(err) return callback(err);
-      try {
-        callback(null, JSON.parse(body));
-      } catch(e) {
-        callback(e);
-      }
-    });
-}
-
